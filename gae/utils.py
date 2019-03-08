@@ -280,17 +280,17 @@ def preprocess_graph_sp(adj):
     return adj_normalized
 
 def preprocess_graph(adj):
-    adj = sp.coo_matrix(adj)
+    #adj = sp.coo_matrix(adj)
     adj_ = adj + sp.eye(adj.shape[0])
     rowsum = np.array(adj_.sum(1))
     degree_mat_inv_sqrt = sp.diags(np.power(rowsum, -0.5).flatten())
-    adj_normalized = adj_.dot(degree_mat_inv_sqrt).transpose().dot(degree_mat_inv_sqrt).tocoo()
+    adj_normalized = adj_.dot(degree_mat_inv_sqrt).transpose().dot(degree_mat_inv_sqrt)
     # adj_normalized = adj_normalized * adj_normalized * adj_normalized
     
     
     #return  torch.from_numpy(adj_normalized.todense()).float()
     #return torch.from_numpy(sparse_to_tuple(adj_normalized))
-    return sparse_mx_to_torch_sparse_tensor(adj_normalized)
+    return sp.csr_matrix(adj_normalized)
 
 
 def sparse_mx_to_torch_sparse_tensor(sparse_mx):
