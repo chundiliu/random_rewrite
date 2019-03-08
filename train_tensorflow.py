@@ -21,7 +21,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--model', type=str, default='gcn_vae', help="models used")
 parser.add_argument('--seed', type=int, default=42, help='Random seed.')
 parser.add_argument('--epochs', type=int, default=99999, help='Number of epochs to train.')
-parser.add_argument('--hidden1', type=int, default=4096, help='Number of units in hidden layer 1.')
+parser.add_argument('--hidden1', type=int, default=2048, help='Number of units in hidden layer 1.')
 parser.add_argument('--hidden2', type=int, default=2048, help='Number of units in hidden layer 2.')
 parser.add_argument('--lr', type=float, default=0.09, help='Initial learning rate.')
 parser.add_argument('--dropout', type=float, default=0.1, help='Dropout rate (1 - keep probability).')
@@ -58,7 +58,7 @@ def gae_for(args, position):
     #D = np.load("/media/jason/cc0aeb62-0bc7-4f3e-99a0-3bba3dd9f8fc/landmarks/revisitop1m/revisitDistractors_fused_3s_cq.npy").T.astype(np.float32)
     #X = np.concatenate((X.T,D.T)).T
     # load the distractor too, shape should be (2048, 1M)
-    adj, features = gen_graph_index(Q, X, k=5, k_qe=3, do_qe=False) #-----> 5k
+    adj, features = gen_graph_index(Q, X, k=4, k_qe=3, do_qe=False) #-----> 5k
 
     adj_Q, features_Q = gen_graph(Q, X, k=5, k_qe=3, do_qe=False) #generate validation/revop evaluation the same way as training ----> 5k
     features_all = np.concatenate([features_Q, features])
@@ -228,6 +228,7 @@ def gae_for(args, position):
         hidden_emb_v = tf.nn.l2_normalize(output2_v, axis=1)
         adj_preds = tf.matmul(hidden_emb, tf.transpose(hidden_emb))
         adj_preds = tf.nn.relu(adj_preds)
+        adj_preds = tf.nn.dropout(adj_preds, 0.99)
 
     #ipdb.set_trace()
 
