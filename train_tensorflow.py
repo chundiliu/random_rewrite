@@ -43,7 +43,7 @@ def convert_sparse_matrix_to_sparse_tensor(X):
 def gae_for(args, position):
     print("Using {} dataset".format(args.dataset_str))
     #qhashes, chashes = load_hashes()
-    Q, X = load_data()
+    Q, X = load_data_paris()
     prebuild = "/media/chundi/3b6b0f74-0ac7-42c7-b76b-00c65f5b3673/revisitop/cnnimageretrieval-pytorch/data/test/matlab_data/GEM_wDis_prebuild.bin"
     Q_features = "/media/chundi/3b6b0f74-0ac7-42c7-b76b-00c65f5b3673/revisitop/cnnimageretrieval-pytorch/data/test/matlab_data/roxford5k_GEM_lw_query_feats.npy" #"/media/jason/cc0aeb62-0bc7-4f3e-99a0-3bba3dd9f8fc/landmarks/oxfordRe/evaluation/roxHD_query_fused.npy"
     X_features = "/media/chundi/3b6b0f74-0ac7-42c7-b76b-00c65f5b3673/revisitop/cnnimageretrieval-pytorch/data/test/matlab_data/roxford5k_GEM_index.npy"
@@ -58,9 +58,9 @@ def gae_for(args, position):
     #D = np.load("/media/jason/cc0aeb62-0bc7-4f3e-99a0-3bba3dd9f8fc/landmarks/revisitop1m/revisitDistractors_fused_3s_cq.npy").T.astype(np.float32)
     #X = np.concatenate((X.T,D.T)).T
     # load the distractor too, shape should be (2048, 1M)
-    adj, features = gen_graph_index(Q, X, k=4, k_qe=3, do_qe=False) #-----> 5k
+    adj, features = gen_graph_index(Q, X, k=5, k_qe=3, do_qe=False) #-----> 5k
 
-    adj_Q, features_Q = gen_graph(Q, X, k=5, k_qe=3, do_qe=False) #generate validation/revop evaluation the same way as training ----> 5k
+    adj_Q, features_Q = gen_graph(Q, X, k=15, k_qe=3, do_qe=False) #generate validation/revop evaluation the same way as training ----> 5k
     features_all = np.concatenate([features_Q, features])
 
     #adj_Q = adj_Q.todense()
@@ -174,14 +174,16 @@ def gae_for(args, position):
     #features_evaluate = torch.from_numpy(features_evaluate)
     # validation done\\\
 
-
+    #with tf.device('/device:GPU:1'):
     adj_norm_spt = convert_sparse_matrix_to_sparse_tensor(adj_norm)
     adj_all_norm_spt = convert_sparse_matrix_to_sparse_tensor(adj_all_norm)
     #adj_label_spt = convert_sparse_matrix_to_sparse_tensor(adj_label)
     feats_t = tf.constant(features, dtype=tf.float32)
     feats_all_t = tf.constant(features_all, dtype=tf.float32)
-    # featts_ph = tf.placeholder(dtype=tf.float32, shape=[None, 2048])
-    # adj_ph = tf.sparse_placeholder(dtype=tf.float32, shape=[None, None])
+    featts_ph = tf.placeholder(dtype=tf.float32, shape=[None, 2048])
+    adj_ph = tf.sparse_placeholder(dtype=tf.float32, shape=[None, None])
+
+
 
 
     regularizer = tf.contrib.layers.l2_regularizer(scale=1e-5)
@@ -192,8 +194,22 @@ def gae_for(args, position):
 
 
     step2_norm = tf.nn.l2_normalize(step2, axis=1)
+    print(features.shape[0])
+    dataset = tf.data.Dataset.range(features.shape[0])
+    dataset = dataset.shuffle(buffer_size=10000)
+    dataset = dataset.batch(args.batch_size)
+    dataset = dataset.repeat()
+    iterator = dataset.make_initializable_iterator()
+    next_element = iterator.get_next()
 
+    dataset2 = tf.data.Dataset.range(features.shape[0])
+    dataset2 = dataset2.shuffle(buffer_size=10000)
+    dataset2 = dataset2.batch(args.batch_size)
+    dataset2 = dataset2.repeat()
+    iterator2 = dataset2.make_initializable_iterator()
+    next_element2 = iterator2.get_next()
 
+    #ipdb.set_trace()
 
     # 1st GCN
     with tf.variable_scope('GCN1'):
@@ -206,7 +222,7 @@ def gae_for(args, position):
         output1 = tf.nn.bias_add(tf.matmul(walk1, W1), B1)
         output1 = tf.nn.elu(output1)
 
-        walk1_v = tf.sparse_tensor_dense_matmul(adj_all_norm_spt, feats_all_t)
+        walk1_v = tf.sparse_tensor_dense_matmul(adj_ph, featts_ph)
         output1_v = tf.nn.bias_add(tf.matmul(walk1_v, W1), B1)
         output1_v = tf.nn.elu(output1_v)
 
@@ -219,13 +235,15 @@ def gae_for(args, position):
         walk2 = tf.sparse_tensor_dense_matmul(adj_norm_spt, output1)
         output2 = tf.nn.bias_add(tf.matmul(walk2, W2), B2)
 
-        walk2_v = tf.sparse_tensor_dense_matmul(adj_all_norm_spt, output1_v)
+        walk2_v = tf.sparse_tensor_dense_matmul(adj_ph, output1_v)
         output2_v = tf.nn.bias_add(tf.matmul(walk2_v, W2), B2)
 
     with tf.variable_scope('InnerProduct'):
         hidden_emb = tf.nn.l2_normalize(output2, axis=1)
         #hidden_emb = output2
         hidden_emb_v = tf.nn.l2_normalize(output2_v, axis=1)
+        #sampled_hidden_emb = tf.nn.embedding_lookup(hidden_emb, next_element)
+        #sampled_hidden_emb2 = tf.nn.embedding_lookup(hidden_emb, next_element2)
         adj_preds = tf.matmul(hidden_emb, tf.transpose(hidden_emb))
         adj_preds = tf.nn.relu(adj_preds)
         adj_preds = tf.nn.dropout(adj_preds, 0.99)
@@ -233,7 +251,8 @@ def gae_for(args, position):
     #ipdb.set_trace()
 
     losses = tf.nn.weighted_cross_entropy_with_logits(
-        tf.zeros_like(adj_preds, dtype=tf.float32),
+        #tf.zeros_like(adj_preds, dtype=tf.float32),
+        tf.get_variable(name='aa', shape=adj_preds.shape, dtype=tf.float32, initializer=tf.random_normal_initializer()),
         adj_preds,
         pos_weight=1.0,
         name='weighted_loss'
@@ -254,6 +273,9 @@ def gae_for(args, position):
 
     session_conf = tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)
     with tf.Session(config=session_conf) as sess:
+        sess.run(iterator.initializer)
+        sess.run(iterator2.initializer)
+        #ipdb.set_trace()
         hidden_emb_inf = sess.run(step2_norm)
         revop_map = get_roc_score_matrix(hidden_emb_inf, Q.shape[1])
         print("inference map:{}".format(revop_map))
@@ -268,8 +290,47 @@ def gae_for(args, position):
 
 
             if itr % 1 == 0:
-                hidden_emb_np = sess.run(hidden_emb_v)
-                revop_map = get_roc_score_matrix(hidden_emb_np, Q.shape[1])
+                q_length = 70
+                adj_q = adj_all[:q_length, q_length:]
+                adj_i = adj_all[q_length:, q_length:]
+                features_q = features_all[:q_length, :]
+                features_i = features_all[q_length:, :]
+                rankings = []
+                for i in range(q_length):
+                    adj_all_evaluation = sp.vstack((adj_q[i, :], adj_i))
+                    zeros = sp.csr_matrix((adj_all_evaluation.shape[0], 1))
+                    adj_all_evaluation = sp.hstack((zeros, adj_all_evaluation))
+                    adj_all_evaluation = sp.csr_matrix(adj_all_evaluation)
+                    features_all_evaluation = np.concatenate([features_q[i:i + 1, :], features_i])
+                    # features_all_evaluation = torch.from_numpy(features_all_evaluation)
+
+                    rows, columns = adj_all_evaluation.nonzero()
+                    for j in range(rows.shape[0]):
+                        if rows[j] < 1:
+                            adj_all_evaluation[columns[j], rows[j]] = adj_all_evaluation[rows[j], columns[j]]
+                        else:
+                            break
+                    adj_all_evaluation = preprocess_graph(adj_all_evaluation)
+                    adj_all_evaluation = convert_sparse_matrix_to_sparse_tensor(adj_all_evaluation)
+                    emb = sess.run(hidden_emb_v,
+                                             feed_dict={adj_ph: adj_all_evaluation, featts_ph: features_all_evaluation})
+
+                    embX = emb[1:, :].T
+                    embQ = emb[:1, :].T
+                    revop_inner_prod = np.matmul(embX.T, embQ)
+                    revop_preds = np.argsort(-revop_inner_prod, axis=0)
+                    rankings.append(revop_preds)
+                    sys.stdout.write("\r" + "evaluating queries: [" + str(i) + "/" + str(q_length) + "]")
+                    sys.stdout.flush()
+                rankings = np.array(rankings)
+                rankings = np.reshape(rankings, (rankings.shape[0], rankings.shape[1]))
+                rankings = rankings.T
+                revop_map = eval_revop(rankings, silent=True)
+
+
+
+                # hidden_emb_np = sess.run(hidden_emb_v, feed_dict={adj_ph: adj_all_norm_spt, featts_ph: features_all})
+                # revop_map = get_roc_score_matrix(hidden_emb_np, Q.shape[1])
                 if revop_map > best_revop:
                     best_revop = revop_map
                 print("train loss: {}, time consuming: {}, revop:{}, best revop:{}".format(loss_out, str(end_time),revop_map, best_revop))
