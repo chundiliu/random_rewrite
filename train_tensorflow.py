@@ -219,14 +219,14 @@ def gae_for(args, position):
     print(features.shape[0])
     dataset = tf.data.Dataset.range(features.shape[0])
     dataset = dataset.shuffle(buffer_size=10000)
-    dataset = dataset.batch(args.batch_size)
+    dataset = dataset.batch(args.batch_size, drop_remainder=True)
     dataset = dataset.repeat()
     iterator = dataset.make_initializable_iterator()
     next_element = iterator.get_next()
 
     dataset2 = tf.data.Dataset.range(features.shape[0])
     dataset2 = dataset2.shuffle(buffer_size=10000)
-    dataset2 = dataset2.batch(args.batch_size)
+    dataset2 = dataset2.batch(args.batch_size, drop_remainder=True)
     dataset2 = dataset2.repeat()
     iterator2 = dataset2.make_initializable_iterator()
     next_element2 = iterator2.get_next()
@@ -276,10 +276,10 @@ def gae_for(args, position):
         #adj_preds = tf.nn.dropout(adj_preds, 0.99)
 
     #ipdb.set_trace()
-
+    labels = tf.get_variable(name='aa', shape=[args.batch_size, args.batch_size], dtype=tf.float32, initializer=tf.random_normal_initializer())
     losses = tf.nn.weighted_cross_entropy_with_logits(
         #tf.zeros_like(adj_preds, dtype=tf.float32),
-        tf.get_variable(name='aa', shape=[args.batch_size, args.batch_size], dtype=tf.float32, initializer=tf.random_normal_initializer(), trainable=False),
+        labels,
         adj_preds,
         pos_weight=1.0,
         name='weighted_loss'
@@ -313,7 +313,7 @@ def gae_for(args, position):
         while itr < args.epochs:
             start_time = time.time()
             sess.run(global_step.assign(itr + 1))
-            sess.run(tf.initialize_variables(tf.get_variable(name='aa')))
+            #sess.run(tf.initialize_variables([labels]))
             _, loss_out = sess.run([train_op, loss])
             end_time = time.time() - start_time
             print(
