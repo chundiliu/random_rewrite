@@ -17,6 +17,10 @@ from sklearn.manifold import TSNE
 
 import tensorflow as tf
 
+import os
+#os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"   # see issue #152
+os.environ["CUDA_VISIBLE_DEVICES"]="1"
+
 parser = argparse.ArgumentParser()
 parser.add_argument('--model', type=str, default='gcn_vae', help="models used")
 parser.add_argument('--seed', type=int, default=42, help='Random seed.')
@@ -26,7 +30,7 @@ parser.add_argument('--hidden2', type=int, default=2048, help='Number of units i
 parser.add_argument('--lr', type=float, default=0.09, help='Initial learning rate.')
 parser.add_argument('--dropout', type=float, default=0.1, help='Dropout rate (1 - keep probability).')
 parser.add_argument('--dataset-str', type=str, default='cora', help='type of dataset.')
-parser.add_argument('--batch-size', type=int, default=1024, help='Batch size.')
+parser.add_argument('--batch-size', type=int, default=8192, help='Batch size.')
 
 #AE, VAE, AE_batch, VAE_batch
 mode = "AE"
@@ -43,12 +47,12 @@ def convert_sparse_matrix_to_sparse_tensor(X):
 def gae_for(args, position):
     print("Using {} dataset".format(args.dataset_str))
     #qhashes, chashes = load_hashes()
-    Q, X = load_data_paris()
+    Q, X = load_data()
     prebuild = "/media/chundi/3b6b0f74-0ac7-42c7-b76b-00c65f5b3673/revisitop/cnnimageretrieval-pytorch/data/test/matlab_data/GEM_wDis_prebuild.bin"
     Q_features = "/media/chundi/3b6b0f74-0ac7-42c7-b76b-00c65f5b3673/revisitop/cnnimageretrieval-pytorch/data/test/matlab_data/roxford5k_GEM_lw_query_feats.npy" #"/media/jason/cc0aeb62-0bc7-4f3e-99a0-3bba3dd9f8fc/landmarks/oxfordRe/evaluation/roxHD_query_fused.npy"
     X_features = "/media/chundi/3b6b0f74-0ac7-42c7-b76b-00c65f5b3673/revisitop/cnnimageretrieval-pytorch/data/test/matlab_data/roxford5k_GEM_index.npy"
     D_features = "/media/chundi/3b6b0f74-0ac7-42c7-b76b-00c65f5b3673/revisitop/cnnimageretrieval-pytorch/data/test/matlab_data/roxford5k_GEM_Dis.npy"
-    #adj, features, adj_Q, features_Q = load_from_prebuild(prebuild, Q_features, X_features, D_features, k=5) # ----> 1M
+    adj, features, adj_Q, features_Q = load_from_prebuild(prebuild, Q_features, X_features, D_features, k=5) # ----> 1M
     #cut_size = 800000
     #adj = adj[:cut_size, :cut_size]
     #adj_Q = adj_Q[:, :cut_size]
@@ -58,9 +62,9 @@ def gae_for(args, position):
     #D = np.load("/media/jason/cc0aeb62-0bc7-4f3e-99a0-3bba3dd9f8fc/landmarks/revisitop1m/revisitDistractors_fused_3s_cq.npy").T.astype(np.float32)
     #X = np.concatenate((X.T,D.T)).T
     # load the distractor too, shape should be (2048, 1M)
-    adj, features = gen_graph_index(Q, X, k=5, k_qe=3, do_qe=False) #-----> 5k
+    #adj, features = gen_graph_index(Q, X, k=4, k_qe=3, do_qe=False) #-----> 5k
 
-    adj_Q, features_Q = gen_graph(Q, X, k=15, k_qe=3, do_qe=False) #generate validation/revop evaluation the same way as training ----> 5k
+    #adj_Q, features_Q = gen_graph(Q, X, k=5, k_qe=3, do_qe=False) #generate validation/revop evaluation the same way as training ----> 5k
     features_all = np.concatenate([features_Q, features])
 
     #adj_Q = adj_Q.todense()
@@ -71,12 +75,12 @@ def gae_for(args, position):
     adj_all = sp.hstack((zeros, adj_all))
     adj_all = sp.csr_matrix(adj_all)
     rows, columns = adj_all.nonzero()
-    print("Making Symmetry")
-    for i in range(rows.shape[0]):
-        if rows[i] < Q.shape[1]:
-            adj_all[columns[i], rows[i]] = adj_all[rows[i], columns[i]]
-        else:
-            break
+    # print("Making Symmetry")
+    # for i in range(rows.shape[0]):
+    #     if rows[i] < Q.shape[1]:
+    #         adj_all[columns[i], rows[i]] = adj_all[rows[i], columns[i]]
+    #     else:
+    #         break
     #adj_all = sp.csr_matrix(adj_all)
     print("preprocessing adj_all")
     adj_all_norm = preprocess_graph(adj_all)
@@ -84,6 +88,14 @@ def gae_for(args, position):
     #adj1, features1 = load_data(args.dataset_str)
     #features = torch.from_numpy(features)
     #features_all = torch.from_numpy(features_all)
+
+    random_indices = np.random.permutation(features.shape[0])
+
+    features = features.T
+    adj, features = gen_graph_index(None, features[:, random_indices[:100000]], k=5, k_qe=3, do_qe=False)
+    #ipdb.set_trace()
+
+
     n_nodes, feat_dim = features.shape
 
     # Store original adjacency matrix (without diagonal entries) for later
@@ -176,12 +188,26 @@ def gae_for(args, position):
 
     #with tf.device('/device:GPU:1'):
     adj_norm_spt = convert_sparse_matrix_to_sparse_tensor(adj_norm)
+    print(adj_norm.getnnz())
     adj_all_norm_spt = convert_sparse_matrix_to_sparse_tensor(adj_all_norm)
     #adj_label_spt = convert_sparse_matrix_to_sparse_tensor(adj_label)
-    feats_t = tf.constant(features, dtype=tf.float32)
-    feats_all_t = tf.constant(features_all, dtype=tf.float32)
-    featts_ph = tf.placeholder(dtype=tf.float32, shape=[None, 2048])
+    # feats_t = tf.constant(features, dtype=tf.float32)
+    # feats_all_t = tf.constant(features_all, dtype=tf.float32)
+
+    featts_ph = tf.placeholder(dtype=tf.float32, shape=[features.shape[0], features.shape[1]])
+    feats_t = tf.Variable(featts_ph, trainable=False)
+    # set_feats = tf.assign(feats_t, featts_ph, validate_shape=False)
+    # feats_t.set_shape(features.shape)
     adj_ph = tf.sparse_placeholder(dtype=tf.float32, shape=[None, None])
+
+    with tf.device('/cpu:0'):
+        feats_all_ph = tf.placeholder(dtype=tf.float32, shape=[features_all.shape[0], features_all.shape[1]])
+        feats_all_t = tf.Variable(feats_all_ph, trainable=False)
+
+        step1 = tf.sparse_tensor_dense_matmul(adj_all_norm_spt, feats_all_t)
+        step2 = tf.sparse_tensor_dense_matmul(adj_all_norm_spt, step1)
+
+        step2_norm = tf.nn.l2_normalize(step2, axis=1)
 
 
 
@@ -189,11 +215,7 @@ def gae_for(args, position):
     regularizer = tf.contrib.layers.l2_regularizer(scale=1e-5)
 
     #inference
-    step1 = tf.sparse_tensor_dense_matmul(adj_all_norm_spt, feats_all_t)
-    step2 = tf.sparse_tensor_dense_matmul(adj_all_norm_spt, step1)
 
-
-    step2_norm = tf.nn.l2_normalize(step2, axis=1)
     print(features.shape[0])
     dataset = tf.data.Dataset.range(features.shape[0])
     dataset = dataset.shuffle(buffer_size=10000)
@@ -222,9 +244,11 @@ def gae_for(args, position):
         output1 = tf.nn.bias_add(tf.matmul(walk1, W1), B1)
         output1 = tf.nn.elu(output1)
 
-        walk1_v = tf.sparse_tensor_dense_matmul(adj_ph, featts_ph)
-        output1_v = tf.nn.bias_add(tf.matmul(walk1_v, W1), B1)
-        output1_v = tf.nn.elu(output1_v)
+        with tf.device('/cpu:0'):
+
+            walk1_v = tf.sparse_tensor_dense_matmul(adj_all_norm_spt, feats_all_t)
+            output1_v = tf.nn.bias_add(tf.matmul(walk1_v, W1), B1)
+            output1_v = tf.nn.elu(output1_v)
 
     with tf.variable_scope('GCN2'):
         W2 = tf.get_variable(name="w", shape=[args.hidden1, args.hidden2], dtype=tf.float32,
@@ -235,24 +259,27 @@ def gae_for(args, position):
         walk2 = tf.sparse_tensor_dense_matmul(adj_norm_spt, output1)
         output2 = tf.nn.bias_add(tf.matmul(walk2, W2), B2)
 
-        walk2_v = tf.sparse_tensor_dense_matmul(adj_ph, output1_v)
-        output2_v = tf.nn.bias_add(tf.matmul(walk2_v, W2), B2)
+        with tf.device('/cpu:0'):
+
+            walk2_v = tf.sparse_tensor_dense_matmul(adj_all_norm_spt, output1_v)
+            output2_v = tf.nn.bias_add(tf.matmul(walk2_v, W2), B2)
 
     with tf.variable_scope('InnerProduct'):
         hidden_emb = tf.nn.l2_normalize(output2, axis=1)
         #hidden_emb = output2
-        hidden_emb_v = tf.nn.l2_normalize(output2_v, axis=1)
-        #sampled_hidden_emb = tf.nn.embedding_lookup(hidden_emb, next_element)
-        #sampled_hidden_emb2 = tf.nn.embedding_lookup(hidden_emb, next_element2)
-        adj_preds = tf.matmul(hidden_emb, tf.transpose(hidden_emb))
+        with tf.device('/cpu:0'):
+            hidden_emb_v = tf.nn.l2_normalize(output2_v, axis=1)
+        sampled_hidden_emb = tf.nn.embedding_lookup(hidden_emb, next_element)
+        sampled_hidden_emb2 = tf.nn.embedding_lookup(hidden_emb, next_element2)
+        adj_preds = tf.matmul(sampled_hidden_emb, tf.transpose(sampled_hidden_emb2))
         adj_preds = tf.nn.relu(adj_preds)
-        adj_preds = tf.nn.dropout(adj_preds, 0.99)
+        #adj_preds = tf.nn.dropout(adj_preds, 0.99)
 
     #ipdb.set_trace()
 
     losses = tf.nn.weighted_cross_entropy_with_logits(
         #tf.zeros_like(adj_preds, dtype=tf.float32),
-        tf.get_variable(name='aa', shape=adj_preds.shape, dtype=tf.float32, initializer=tf.random_normal_initializer()),
+        tf.get_variable(name='aa', shape=[args.batch_size, args.batch_size], dtype=tf.float32, initializer=tf.random_normal_initializer(), trainable=False),
         adj_preds,
         pos_weight=1.0,
         name='weighted_loss'
@@ -275,65 +302,75 @@ def gae_for(args, position):
     with tf.Session(config=session_conf) as sess:
         sess.run(iterator.initializer)
         sess.run(iterator2.initializer)
-        #ipdb.set_trace()
+
+        sess.run(train_init_op, feed_dict={featts_ph: features, feats_all_ph: features_all})
         hidden_emb_inf = sess.run(step2_norm)
         revop_map = get_roc_score_matrix(hidden_emb_inf, Q.shape[1])
         print("inference map:{}".format(revop_map))
-        sess.run(train_init_op)
+        #sess.run(train_init_op)
+
         itr = 0
         while itr < args.epochs:
             start_time = time.time()
             sess.run(global_step.assign(itr + 1))
+            sess.run(tf.initialize_variables(tf.get_variable(name='aa')))
             _, loss_out = sess.run([train_op, loss])
             end_time = time.time() - start_time
+            print(
+                "train loss: {}, time consuming: {}".format(loss_out, str(end_time)))
             itr += 1
 
 
             if itr % 1 == 0:
-                q_length = 70
-                adj_q = adj_all[:q_length, q_length:]
-                adj_i = adj_all[q_length:, q_length:]
-                features_q = features_all[:q_length, :]
-                features_i = features_all[q_length:, :]
-                rankings = []
-                for i in range(q_length):
-                    adj_all_evaluation = sp.vstack((adj_q[i, :], adj_i))
-                    zeros = sp.csr_matrix((adj_all_evaluation.shape[0], 1))
-                    adj_all_evaluation = sp.hstack((zeros, adj_all_evaluation))
-                    adj_all_evaluation = sp.csr_matrix(adj_all_evaluation)
-                    features_all_evaluation = np.concatenate([features_q[i:i + 1, :], features_i])
-                    # features_all_evaluation = torch.from_numpy(features_all_evaluation)
-
-                    rows, columns = adj_all_evaluation.nonzero()
-                    for j in range(rows.shape[0]):
-                        if rows[j] < 1:
-                            adj_all_evaluation[columns[j], rows[j]] = adj_all_evaluation[rows[j], columns[j]]
-                        else:
-                            break
-                    adj_all_evaluation = preprocess_graph(adj_all_evaluation)
-                    adj_all_evaluation = convert_sparse_matrix_to_sparse_tensor(adj_all_evaluation)
-                    emb = sess.run(hidden_emb_v,
-                                             feed_dict={adj_ph: adj_all_evaluation, featts_ph: features_all_evaluation})
-
-                    embX = emb[1:, :].T
-                    embQ = emb[:1, :].T
-                    revop_inner_prod = np.matmul(embX.T, embQ)
-                    revop_preds = np.argsort(-revop_inner_prod, axis=0)
-                    rankings.append(revop_preds)
-                    sys.stdout.write("\r" + "evaluating queries: [" + str(i) + "/" + str(q_length) + "]")
-                    sys.stdout.flush()
-                rankings = np.array(rankings)
-                rankings = np.reshape(rankings, (rankings.shape[0], rankings.shape[1]))
-                rankings = rankings.T
-                revop_map = eval_revop(rankings, silent=True)
-
-
-
-                # hidden_emb_np = sess.run(hidden_emb_v, feed_dict={adj_ph: adj_all_norm_spt, featts_ph: features_all})
-                # revop_map = get_roc_score_matrix(hidden_emb_np, Q.shape[1])
+                hidden_emb_np = sess.run(hidden_emb_v)
+                revop_map = get_roc_score_matrix(hidden_emb_np, Q.shape[1])
                 if revop_map > best_revop:
                     best_revop = revop_map
                 print("train loss: {}, time consuming: {}, revop:{}, best revop:{}".format(loss_out, str(end_time),revop_map, best_revop))
+                # q_length = 70
+                # adj_q = adj_all[:q_length, q_length:]
+                # adj_i = adj_all[q_length:, q_length:]
+                # features_q = features_all[:q_length, :]
+                # features_i = features_all[q_length:, :]
+                # rankings = []
+                # for i in range(q_length):
+                #     adj_all_evaluation = sp.vstack((adj_q[i, :], adj_i))
+                #     zeros = sp.csr_matrix((adj_all_evaluation.shape[0], 1))
+                #     adj_all_evaluation = sp.hstack((zeros, adj_all_evaluation))
+                #     adj_all_evaluation = sp.csr_matrix(adj_all_evaluation)
+                #     features_all_evaluation = np.concatenate([features_q[i:i + 1, :], features_i])
+                #     # features_all_evaluation = torch.from_numpy(features_all_evaluation)
+                #
+                #     rows, columns = adj_all_evaluation.nonzero()
+                #     for j in range(rows.shape[0]):
+                #         if rows[j] < 1:
+                #             adj_all_evaluation[columns[j], rows[j]] = adj_all_evaluation[rows[j], columns[j]]
+                #         else:
+                #             break
+                #     adj_all_evaluation = preprocess_graph(adj_all_evaluation)
+                #     adj_all_evaluation = convert_sparse_matrix_to_sparse_tensor(adj_all_evaluation)
+                #     emb = sess.run(hidden_emb_v,
+                #                              feed_dict={adj_ph: adj_all_evaluation, featts_ph: features_all_evaluation})
+                #
+                #     embX = emb[1:, :].T
+                #     embQ = emb[:1, :].T
+                #     revop_inner_prod = np.matmul(embX.T, embQ)
+                #     revop_preds = np.argsort(-revop_inner_prod, axis=0)
+                #     rankings.append(revop_preds)
+                #     sys.stdout.write("\r" + "evaluating queries: [" + str(i) + "/" + str(q_length) + "]")
+                #     sys.stdout.flush()
+                # rankings = np.array(rankings)
+                # rankings = np.reshape(rankings, (rankings.shape[0], rankings.shape[1]))
+                # rankings = rankings.T
+                # revop_map = eval_revop(rankings, silent=True)
+                #
+                #
+                #
+                # # hidden_emb_np = sess.run(hidden_emb_v, feed_dict={adj_ph: adj_all_norm_spt, featts_ph: features_all})
+                # # revop_map = get_roc_score_matrix(hidden_emb_np, Q.shape[1])
+                # if revop_map > best_revop:
+                #     best_revop = revop_map
+                # print("train loss: {}, time consuming: {}, revop:{}, best revop:{}".format(loss_out, str(end_time),revop_map, best_revop))
 
     ipdb.set_trace()
 

@@ -145,22 +145,6 @@ def gen_graph_index(Q, X, k = 5, k_qe=5, do_qe=False):
     t = time.time()
 
     f = X.T
-    if f.shape[0] > 10000:
-        # break into chunks
-        chunk_size = 20000
-        adj = sp.csr_matrix((f.shape[0], f.shape[0]))
-        start = time.time()
-        for i in range(0, f.shape[0], chunk_size):
-            sim = np.matmul(f[i:i+chunk_size, :], f.T)
-            sim_top = np.argpartition(sim,-k,1)[:,-k:]
-            for j in range(sim_top.shape[0]):
-                adj[i+j, sim_top[j]] = sim[j, sim_top[j]]
-                adj[sim_top[j], i+j] = np.expand_dims(sim[j, sim_top[j]], axis=-1) #sim[sim_top[j], j]
-                adj[i+j, i+j] = 0
-            sys.stdout.write("\r" + "calculating kNN graph: [" + str(i) + "/" + str(f.shape[0]) + "] and took: " + str(time.time() - start))
-            sys.stdout.flush()
-        return adj
-
     #f = np.concatenate((Q.T,X.T))
 
     sim = np.matmul(f,f.T)
