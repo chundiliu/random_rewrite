@@ -19,7 +19,7 @@ import tensorflow as tf
 
 import os
 #os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"   # see issue #152
-os.environ["CUDA_VISIBLE_DEVICES"]="1"
+os.environ["CUDA_VISIBLE_DEVICES"]="2"
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--model', type=str, default='gcn_vae', help="models used")
@@ -27,10 +27,10 @@ parser.add_argument('--seed', type=int, default=42, help='Random seed.')
 parser.add_argument('--epochs', type=int, default=99999, help='Number of epochs to train.')
 parser.add_argument('--hidden1', type=int, default=2048, help='Number of units in hidden layer 1.')
 parser.add_argument('--hidden2', type=int, default=2048, help='Number of units in hidden layer 2.')
-parser.add_argument('--lr', type=float, default=0.09, help='Initial learning rate.')
+parser.add_argument('--lr', type=float, default=0.001, help='Initial learning rate.')
 parser.add_argument('--dropout', type=float, default=0.1, help='Dropout rate (1 - keep probability).')
 parser.add_argument('--dataset-str', type=str, default='cora', help='type of dataset.')
-parser.add_argument('--batch-size', type=int, default=8192, help='Batch size.')
+parser.add_argument('--batch-size', type=int, default=4096, help='Batch size.')
 
 #AE, VAE, AE_batch, VAE_batch
 mode = "AE"
@@ -42,7 +42,20 @@ for key in vars(args):
 def convert_sparse_matrix_to_sparse_tensor(X):
     coo = X.tocoo()
     indices = np.mat([coo.row, coo.col]).transpose()
-    return tf.SparseTensorValue(indices, coo.data.astype(np.float32), coo.shape)
+    return tf.SparseTensor(indices, coo.data.astype(np.float32), coo.shape)
+
+def batch_sparse_dense_matmul(sparse_matrix, dense_matrix, num_batch = 10):
+    batch_size = int(np.ceil((float)(sparse_matrix.get_shape()[0].value) / num_batch))
+    sparse_res = []
+    for i in range(num_batch):
+        start = i * batch_size
+        end = min((i + 1) * batch_size, sparse_matrix.get_shape()[0].value)
+        sparse_res.append(tf.sparse_tensor_dense_matmul(
+                tf.sparse_slice(sparse_matrix, [start, 0], [end - start, sparse_matrix.get_shape()[1].value]), dense_matrix))
+    return tf.concat(sparse_res, axis=0)
+
+
+
 
 def gae_for(args, position):
     print("Using {} dataset".format(args.dataset_str))
@@ -89,10 +102,10 @@ def gae_for(args, position):
     #features = torch.from_numpy(features)
     #features_all = torch.from_numpy(features_all)
 
-    random_indices = np.random.permutation(features.shape[0])
-
-    features = features.T
-    adj, features = gen_graph_index(None, features[:, random_indices[:100000]], k=5, k_qe=3, do_qe=False)
+    # random_indices = np.random.permutation(features.shape[0])
+    #
+    # features = features.T
+    # adj, features = gen_graph_index(None, features[:, random_indices[:100000]], k=5, k_qe=3, do_qe=False)
     #ipdb.set_trace()
 
 
@@ -187,27 +200,43 @@ def gae_for(args, position):
     # validation done\\\
 
     #with tf.device('/device:GPU:1'):
-    adj_norm_spt = convert_sparse_matrix_to_sparse_tensor(adj_norm)
-    print(adj_norm.getnnz())
-    adj_all_norm_spt = convert_sparse_matrix_to_sparse_tensor(adj_all_norm)
+    #adj_norm_spt = convert_sparse_matrix_to_sparse_tensor(adj_norm)
+    #adj_all_norm_spt = convert_sparse_matrix_to_sparse_tensor(adj_all_norm)
     #adj_label_spt = convert_sparse_matrix_to_sparse_tensor(adj_label)
     # feats_t = tf.constant(features, dtype=tf.float32)
     # feats_all_t = tf.constant(features_all, dtype=tf.float32)
 
-    featts_ph = tf.placeholder(dtype=tf.float32, shape=[features.shape[0], features.shape[1]])
-    feats_t = tf.Variable(featts_ph, trainable=False)
+    features_pre = (adj_norm * (adj_norm * (adj_norm * (adj_norm * (adj_norm * features)))))
+    features_pre = features_pre / np.linalg.norm(features_pre, ord=2, axis=1).reshape((features_pre.shape[0], 1))
+    features_all_pre = ( adj_all_norm * (adj_all_norm * (adj_all_norm * (adj_all_norm * (adj_all_norm * features_all)))))
+
+
+    features_all_pre = features_all_pre / np.linalg.norm(features_all_pre, ord=2, axis=1).reshape((features_all_pre.shape[0], 1))
+    revop_map = get_roc_score_matrix(features_all_pre, Q.shape[1])
+    print('inference: {}'.format(revop_map))
+    np.save('/media/chundi/3b6b0f74-0ac7-42c7-b76b-00c65f5b3673/revisitop/cnnimageretrieval-pytorch/data/test/matlab_data/features_pre.npy',features_pre)
+    np.save(
+        '/media/chundi/3b6b0f74-0ac7-42c7-b76b-00c65f5b3673/revisitop/cnnimageretrieval-pytorch/data/test/matlab_data/features_all_pre.npy',
+        features_all_pre)
+    # features_pre = np.load('/media/chundi/3b6b0f74-0ac7-42c7-b76b-00c65f5b3673/revisitop/cnnimageretrieval-pytorch/data/test/matlab_data/features_pre.npy')
+    # features_all_pre = np.load('/media/chundi/3b6b0f74-0ac7-42c7-b76b-00c65f5b3673/revisitop/cnnimageretrieval-pytorch/data/test/matlab_data/features_all_pre.npy')
+    # n_nodes, feat_dim = features_pre.shape
+
+
+
+
     # set_feats = tf.assign(feats_t, featts_ph, validate_shape=False)
     # feats_t.set_shape(features.shape)
-    adj_ph = tf.sparse_placeholder(dtype=tf.float32, shape=[None, None])
+    #adj_ph = tf.sparse_placeholder(dtype=tf.float32, shape=[None, None])
 
-    with tf.device('/cpu:0'):
-        feats_all_ph = tf.placeholder(dtype=tf.float32, shape=[features_all.shape[0], features_all.shape[1]])
-        feats_all_t = tf.Variable(feats_all_ph, trainable=False)
+    featts_ph = tf.placeholder(dtype=tf.float32, shape=[None, features_pre.shape[1]])
+    #feats_all_ph = tf.placeholder(dtype=tf.float32, shape=[features_all.shape[0], features_all.shape[1]])
+    #feats_all_t = tf.Variable(feats_all_ph, trainable=False)
 
-        step1 = tf.sparse_tensor_dense_matmul(adj_all_norm_spt, feats_all_t)
-        step2 = tf.sparse_tensor_dense_matmul(adj_all_norm_spt, step1)
-
-        step2_norm = tf.nn.l2_normalize(step2, axis=1)
+    # step1 = tf.sparse_tensor_dense_matmul(adj_all_norm_spt, feats_all_t)
+    # step2 = tf.sparse_tensor_dense_matmul(adj_all_norm_spt, step1)
+    #
+    # step2_norm = tf.nn.l2_normalize(step2, axis=1)
 
 
 
@@ -216,21 +245,21 @@ def gae_for(args, position):
 
     #inference
 
-    print(features.shape[0])
-    dataset = tf.data.Dataset.range(features.shape[0])
-    dataset = dataset.shuffle(buffer_size=10000)
-    dataset = dataset.batch(args.batch_size, drop_remainder=True)
-    dataset = dataset.repeat()
-    iterator = dataset.make_initializable_iterator()
+    print(features_pre.shape[0])
+    training_dataset = tf.data.Dataset.from_tensor_slices(featts_ph)
+    training_dataset = training_dataset.shuffle(buffer_size=10000)
+    training_dataset = training_dataset.batch(args.batch_size, drop_remainder=True)
+    training_dataset = training_dataset.repeat()
+
+    validation_dataset = tf.data.Dataset.from_tensor_slices(featts_ph)
+    validation_dataset = validation_dataset.batch(500000)
+
+    iterator = tf.data.Iterator.from_structure(training_dataset.output_types,
+                                               training_dataset.output_shapes)
+    itr_train_init_op = iterator.make_initializer(training_dataset)
+    #ipdb.set_trace()
+    itr_valid_init_op = iterator.make_initializer(validation_dataset)
     next_element = iterator.get_next()
-
-    dataset2 = tf.data.Dataset.range(features.shape[0])
-    dataset2 = dataset2.shuffle(buffer_size=10000)
-    dataset2 = dataset2.batch(args.batch_size, drop_remainder=True)
-    dataset2 = dataset2.repeat()
-    iterator2 = dataset2.make_initializable_iterator()
-    next_element2 = iterator2.get_next()
-
     #ipdb.set_trace()
 
     # 1st GCN
@@ -240,46 +269,37 @@ def gae_for(args, position):
                              regularizer=regularizer)
         B1 = tf.get_variable(name='b', shape=[args.hidden1], dtype=tf.float32,
                                  initializer=tf.constant_initializer(0.0))
-        walk1 = tf.sparse_tensor_dense_matmul(adj_norm_spt, feats_t)
-        output1 = tf.nn.bias_add(tf.matmul(walk1, W1), B1)
+        #walk1 = tf.sparse_tensor_dense_matmul(adj_norm_spt, feats_t)
+        #walk1 = batch_sparse_dense_matmul(adj_norm_spt, feats_t)
+        #feats_batch = tf.nn.embedding_lookup(feats_t, next_element)
+        output1 = tf.nn.bias_add(tf.matmul(next_element, W1), B1)
         output1 = tf.nn.elu(output1)
 
-        with tf.device('/cpu:0'):
+        # with tf.device('/cpu:0'):
+        #
+        #     #walk1_v = tf.sparse_tensor_dense_matmul(adj_all_norm_spt, feats_all_t)
+        #     output1_v = tf.nn.bias_add(tf.matmul(feats_all_t, W1), B1)
+        #     output1_v = tf.nn.elu(output1_v)
 
-            walk1_v = tf.sparse_tensor_dense_matmul(adj_all_norm_spt, feats_all_t)
-            output1_v = tf.nn.bias_add(tf.matmul(walk1_v, W1), B1)
-            output1_v = tf.nn.elu(output1_v)
-
-    with tf.variable_scope('GCN2'):
-        W2 = tf.get_variable(name="w", shape=[args.hidden1, args.hidden2], dtype=tf.float32,
-                             initializer=tf.random_normal_initializer(),
-                             regularizer=regularizer)
-        B2 = tf.get_variable(name='b', shape=[args.hidden2], dtype=tf.float32,
-                             initializer=tf.constant_initializer(0.0))
-        walk2 = tf.sparse_tensor_dense_matmul(adj_norm_spt, output1)
-        output2 = tf.nn.bias_add(tf.matmul(walk2, W2), B2)
-
-        with tf.device('/cpu:0'):
-
-            walk2_v = tf.sparse_tensor_dense_matmul(adj_all_norm_spt, output1_v)
-            output2_v = tf.nn.bias_add(tf.matmul(walk2_v, W2), B2)
 
     with tf.variable_scope('InnerProduct'):
-        hidden_emb = tf.nn.l2_normalize(output2, axis=1)
+        hidden_emb = tf.nn.l2_normalize(output1, axis=1)
         #hidden_emb = output2
-        with tf.device('/cpu:0'):
-            hidden_emb_v = tf.nn.l2_normalize(output2_v, axis=1)
-        sampled_hidden_emb = tf.nn.embedding_lookup(hidden_emb, next_element)
-        sampled_hidden_emb2 = tf.nn.embedding_lookup(hidden_emb, next_element2)
-        adj_preds = tf.matmul(sampled_hidden_emb, tf.transpose(sampled_hidden_emb2))
+        # with tf.device('/cpu:0'):
+        # hidden_emb_v = tf.nn.l2_normalize(output1_v, axis=1)
+        # sampled_hidden_emb = tf.nn.embedding_lookup(hidden_emb, next_element)
+        # sampled_hidden_emb2 = tf.nn.embedding_lookup(hidden_emb, next_element2)
+
+        adj_preds = tf.matmul(hidden_emb, tf.transpose(hidden_emb))
         adj_preds = tf.nn.relu(adj_preds)
         #adj_preds = tf.nn.dropout(adj_preds, 0.99)
 
     #ipdb.set_trace()
-    labels = tf.get_variable(name='aa', shape=[args.batch_size, args.batch_size], dtype=tf.float32, initializer=tf.random_normal_initializer())
+    labels = tf.get_variable(name='aa', shape=[args.batch_size, args.batch_size], dtype=tf.float32,
+                             initializer=tf.constant_initializer(0.0), trainable=False)
     losses = tf.nn.weighted_cross_entropy_with_logits(
         #tf.zeros_like(adj_preds, dtype=tf.float32),
-        labels,
+        adj_preds,
         adj_preds,
         pos_weight=1.0,
         name='weighted_loss'
@@ -298,18 +318,20 @@ def gae_for(args, position):
 
     best_revop = 0.0
 
-    session_conf = tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)
+    session_conf = tf.ConfigProto(allow_soft_placement=False, log_device_placement=False)
     with tf.Session(config=session_conf) as sess:
-        sess.run(iterator.initializer)
-        sess.run(iterator2.initializer)
+        #sess.run(itr_train_init_op, feed_dict={featts_ph: features})
+        #sess.run(iterator2.initializer)
 
-        sess.run(train_init_op, feed_dict={featts_ph: features, feats_all_ph: features_all})
-        hidden_emb_inf = sess.run(step2_norm)
-        revop_map = get_roc_score_matrix(hidden_emb_inf, Q.shape[1])
-        print("inference map:{}".format(revop_map))
+        sess.run(train_init_op)
+        #ipdb.set_trace()
+        #hidden_emb_inf = sess.run(step2_norm)
+        #revop_map = get_roc_score_matrix(hidden_emb_inf, Q.shape[1])
+        #print("inference map:{}".format(revop_map))
         #sess.run(train_init_op)
 
         itr = 0
+        sess.run(itr_train_init_op, feed_dict={featts_ph: features_pre})
         while itr < args.epochs:
             start_time = time.time()
             sess.run(global_step.assign(itr + 1))
@@ -317,16 +339,32 @@ def gae_for(args, position):
             _, loss_out = sess.run([train_op, loss])
             end_time = time.time() - start_time
             print(
-                "train loss: {}, time consuming: {}".format(loss_out, str(end_time)))
+                "itr: {}, train loss: {}, train time: {}".format(itr, loss_out, str(end_time)))
             itr += 1
 
 
             if itr % 1 == 0:
-                hidden_emb_np = sess.run(hidden_emb_v)
+                start_time = time.time()
+                #hidden_emb_np = sess.run(hidden_emb_v)
+                sess.run(itr_valid_init_op, feed_dict={featts_ph: features_all_pre})
+                first_time_flag = True
+                hidden_emb_np = None
+                while True:
+                    try:
+                        if first_time_flag:
+                            hidden_emb_np = sess.run(hidden_emb)
+                            first_time_flag = False
+                        else:
+                            hidden_emb_np = np.concatenate([hidden_emb_np, sess.run(hidden_emb)], axis=0)
+                    except tf.errors.OutOfRangeError:
+                        break
+                assert hidden_emb_np.shape == features_all_pre.shape
+                end_time = time.time() - start_time
                 revop_map = get_roc_score_matrix(hidden_emb_np, Q.shape[1])
                 if revop_map > best_revop:
                     best_revop = revop_map
-                print("train loss: {}, time consuming: {}, revop:{}, best revop:{}".format(loss_out, str(end_time),revop_map, best_revop))
+                print("train loss: {}, inf time: {}, revop:{}, best revop:{}".format(loss_out, str(end_time),revop_map, best_revop))
+                sess.run(itr_train_init_op, feed_dict={featts_ph: features_pre})
                 # q_length = 70
                 # adj_q = adj_all[:q_length, q_length:]
                 # adj_i = adj_all[q_length:, q_length:]

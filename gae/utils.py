@@ -290,7 +290,7 @@ def preprocess_graph(adj):
     
     #return  torch.from_numpy(adj_normalized.todense()).float()
     #return torch.from_numpy(sparse_to_tuple(adj_normalized))
-    return sp.csr_matrix(adj_normalized)
+    return adj_normalized
 
 
 def sparse_mx_to_torch_sparse_tensor(sparse_mx):
