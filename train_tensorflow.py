@@ -67,10 +67,9 @@ def gae_for(args, position):
     adj_Q_pos = np.load('adj_q_pos_ransac_gem_paris.npy')
     adj_pos = np.load('adj_pos_ransac_gem_paris.npy')
 
-    adj, features = gen_graph_index(adj_pos, Q, X, k=5, k_qe=3, do_qe=False)  # -----> 5k
+    adj, features = gen_graph_index(Q, X, k=5, k_qe=3, do_qe=False)  # -----> 5k
 
-    adj_Q, features_Q = gen_graph(adj_Q_pos, Q, X, k=25, k_qe=3,
-                                  do_qe=False)
+    adj_Q, features_Q = gen_graph(Q, X, k=15, k_qe=3, do_qe=False)
 
     #adj, features = gen_graph_index(Q, X, k=5, k_qe=3, do_qe=False) #-----> 5k
 
