@@ -19,7 +19,7 @@ import tensorflow as tf
 
 import os
 
-os.environ["CUDA_VISIBLE_DEVICES"]="0"
+os.environ["CUDA_VISIBLE_DEVICES"]="2"
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--model', type=str, default='gcn_vae', help="models used")
@@ -30,7 +30,7 @@ parser.add_argument('--hidden2', type=int, default=2048, help='Number of units i
 parser.add_argument('--lr', type=float, default=0.01, help='Initial learning rate.')
 parser.add_argument('--dropout', type=float, default=0.1, help='Dropout rate (1 - keep probability).')
 parser.add_argument('--dataset-str', type=str, default='cora', help='type of dataset.')
-parser.add_argument('--batch-size', type=int, default=2048, help='Batch size.')
+parser.add_argument('--batch-size', type=int, default=4096, help='Batch size.')
 
 #AE, VAE, AE_batch, VAE_batch
 mode = "AE"
@@ -45,9 +45,10 @@ def convert_sparse_matrix_to_sparse_tensor(X):
     return tf.SparseTensor(indices, coo.data.astype(np.float32), coo.shape)
 
 def gae_for(args, position):
+    #tf.set_random_seed(428)
     print("Using {} dataset".format(args.dataset_str))
     #qhashes, chashes = load_hashes()
-    Q, X = load_data()
+    Q, X = load_data_paris()
     prebuild = "/media/chundi/3b6b0f74-0ac7-42c7-b76b-00c65f5b3673/revisitop/cnnimageretrieval-pytorch/data/test/matlab_data/GEM_wDis_prebuild.bin"
     Q_features = "/media/chundi/3b6b0f74-0ac7-42c7-b76b-00c65f5b3673/revisitop/cnnimageretrieval-pytorch/data/test/matlab_data/roxford5k_GEM_lw_query_feats.npy" #"/media/jason/cc0aeb62-0bc7-4f3e-99a0-3bba3dd9f8fc/landmarks/oxfordRe/evaluation/roxHD_query_fused.npy"
     X_features = "/media/chundi/3b6b0f74-0ac7-42c7-b76b-00c65f5b3673/revisitop/cnnimageretrieval-pytorch/data/test/matlab_data/roxford5k_GEM_index.npy"
@@ -62,9 +63,9 @@ def gae_for(args, position):
     #D = np.load("/media/jason/cc0aeb62-0bc7-4f3e-99a0-3bba3dd9f8fc/landmarks/revisitop1m/revisitDistractors_fused_3s_cq.npy").T.astype(np.float32)
     #X = np.concatenate((X.T,D.T)).T
     # load the distractor too, shape should be (2048, 1M)
-    adj, features = gen_graph_index(Q, X, k=4, k_qe=3, do_qe=False) #-----> 5k
+    adj, features = gen_graph_index(Q, X, k=5, k_qe=3, do_qe=False) #-----> 5k
 
-    adj_Q, features_Q = gen_graph(Q, X, k=5, k_qe=3, do_qe=False) #generate validation/revop evaluation the same way as training ----> 5k
+    adj_Q, features_Q = gen_graph(Q, X, k=15, k_qe=3, do_qe=False) #generate validation/revop evaluation the same way as training ----> 5k
     features_all = np.concatenate([features_Q, features])
 
     #adj_Q = adj_Q.todense()
@@ -75,12 +76,12 @@ def gae_for(args, position):
     adj_all = sp.hstack((zeros, adj_all))
     adj_all = sp.csr_matrix(adj_all)
     rows, columns = adj_all.nonzero()
-    print("Making Symmetry")
-    for i in range(rows.shape[0]):
-        if rows[i] < Q.shape[1]:
-            adj_all[columns[i], rows[i]] = adj_all[rows[i], columns[i]]
-        else:
-            break
+    # print("Making Symmetry")
+    # for i in range(rows.shape[0]):
+    #     if rows[i] < Q.shape[1]:
+    #         adj_all[columns[i], rows[i]] = adj_all[rows[i], columns[i]]
+    #     else:
+    #         break
     #adj_all = sp.csr_matrix(adj_all)
     print("preprocessing adj_all")
     adj_all_norm = preprocess_graph(adj_all)
@@ -178,12 +179,10 @@ def gae_for(args, position):
     #features_evaluate = torch.from_numpy(features_evaluate)
     # validation done\\\
 
-    features_pre = adj_norm * features
-    features_pre = features_pre / np.linalg.norm(features_pre, ord=2, axis=1).reshape((features_pre.shape[0], 1))
-    features_all_pre = adj_all_norm * features_all
-    
-    
-    features_all_pre = features_all_pre / np.linalg.norm(features_all_pre, ord=2, axis=1).reshape((features_all_pre.shape[0], 1))
+    features_pre = (adj_norm * features)
+    #eatures_pre = features_pre / np.linalg.norm(features_pre, ord=2, axis=1).reshape((features_pre.shape[0], 1))
+    features_all_pre = (adj_all_norm * features_all)
+    #features_all_pre = features_all_pre / np.linalg.norm(features_all_pre, ord=2, axis=1).reshape((features_all_pre.shape[0], 1))
     revop_map = get_roc_score_matrix(features_all_pre, Q.shape[1])
     print('inference: {}'.format(revop_map))
     #ipdb.set_trace()
@@ -227,6 +226,7 @@ def gae_for(args, position):
 
     with tf.variable_scope('InnerProduct'):
         hidden_emb = tf.nn.l2_normalize(output1, axis=1)
+        #hidden_emb = output1
         adj_preds = tf.matmul(hidden_emb, tf.transpose(hidden_emb))
         adj_preds = tf.nn.relu(adj_preds)
         #adj_preds = tf.nn.dropout(adj_preds, 0.99)
@@ -236,13 +236,17 @@ def gae_for(args, position):
     print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
     print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
     print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
-    losses = tf.nn.weighted_cross_entropy_with_logits(
-        #tf.zeros_like(adj_preds, dtype=tf.float32),
-        adj_preds,
-        adj_preds,
-        pos_weight=1.0,
-        name='weighted_loss'
-    )
+    # losses = tf.nn.weighted_cross_entropy_with_logits(
+    #     #tf.zeros_like(adj_preds, dtype=tf.float32),
+    #     adj_preds,
+    #     adj_preds,
+    #     pos_weight=1.0,
+    #     name='weighted_loss'
+    # )
+
+    #losses = tf.keras.backend.binary_crossentropy(adj_preds, adj_preds, False)
+
+    losses = -1 * adj_preds ** 2 + 0.48 * adj_preds
 
     global_step = tf.Variable(0, trainable=False)
     loss = tf.reduce_mean(losses)
@@ -250,7 +254,8 @@ def gae_for(args, position):
     reg_term = tf.contrib.layers.apply_regularization(regularizer, reg_variables)
     loss += reg_term
     learning_rate_t = tf.train.exponential_decay(args.lr, global_step, 9999999999, 0.3)
-    optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate_t)
+    optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate_t, beta1=0.0, beta2=0.99999, epsilon=1e-12)
+    #optimizer = tf.train.MomentumOptimizer(learning_rate=learning_rate_t, momentum=0.0)
     grads_and_vars = optimizer.compute_gradients(loss)
     train_op = optimizer.apply_gradients(grads_and_vars)
     train_init_op = tf.global_variables_initializer()
