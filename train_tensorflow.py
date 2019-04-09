@@ -48,7 +48,7 @@ def gae_for(args, position):
     tf.set_random_seed(428)
     print("Using {} dataset".format(args.dataset_str))
     #qhashes, chashes = load_hashes()
-    Q, X = load_data()
+    Q, X = load_data_paris()
     prebuild = "/media/chundi/3b6b0f74-0ac7-42c7-b76b-00c65f5b3673/revisitop/cnnimageretrieval-pytorch/data/test/matlab_data/GEM_wDis_prebuild.bin"
     Q_features = "/media/chundi/3b6b0f74-0ac7-42c7-b76b-00c65f5b3673/revisitop/cnnimageretrieval-pytorch/data/test/matlab_data/roxford5k_GEM_lw_query_feats.npy" #"/media/jason/cc0aeb62-0bc7-4f3e-99a0-3bba3dd9f8fc/landmarks/oxfordRe/evaluation/roxHD_query_fused.npy"
     X_features = "/media/chundi/3b6b0f74-0ac7-42c7-b76b-00c65f5b3673/revisitop/cnnimageretrieval-pytorch/data/test/matlab_data/roxford5k_GEM_index.npy"
@@ -64,12 +64,12 @@ def gae_for(args, position):
     #X = np.concatenate((X.T,D.T)).T
     # load the distractor too, shape should be (2048, 1M)
 
-    adj_Q_pos = np.load('adj_q_pos_ransac_gem_complete.npy')
-    adj_pos = np.load('adj_pos_ransac_gem_complete.npy')
+    adj_Q_pos = np.load('adj_q_pos_ransac_gem_paris.npy')
+    adj_pos = np.load('adj_pos_ransac_gem_paris.npy')
 
     adj, features = gen_graph_index(adj_pos, Q, X, k=5, k_qe=3, do_qe=False)  # -----> 5k
 
-    adj_Q, features_Q = gen_graph(adj_Q_pos, Q, X, k=10, k_qe=3,
+    adj_Q, features_Q = gen_graph(adj_Q_pos, Q, X, k=25, k_qe=3,
                                   do_qe=False)
 
     #adj, features = gen_graph_index(Q, X, k=5, k_qe=3, do_qe=False) #-----> 5k
