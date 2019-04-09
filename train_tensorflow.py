@@ -45,10 +45,10 @@ def convert_sparse_matrix_to_sparse_tensor(X):
     return tf.SparseTensor(indices, coo.data.astype(np.float32), coo.shape)
 
 def gae_for(args, position):
-    #tf.set_random_seed(428)
+    tf.set_random_seed(428)
     print("Using {} dataset".format(args.dataset_str))
     #qhashes, chashes = load_hashes()
-    Q, X = load_data_paris()
+    Q, X = load_data()
     prebuild = "/media/chundi/3b6b0f74-0ac7-42c7-b76b-00c65f5b3673/revisitop/cnnimageretrieval-pytorch/data/test/matlab_data/GEM_wDis_prebuild.bin"
     Q_features = "/media/chundi/3b6b0f74-0ac7-42c7-b76b-00c65f5b3673/revisitop/cnnimageretrieval-pytorch/data/test/matlab_data/roxford5k_GEM_lw_query_feats.npy" #"/media/jason/cc0aeb62-0bc7-4f3e-99a0-3bba3dd9f8fc/landmarks/oxfordRe/evaluation/roxHD_query_fused.npy"
     X_features = "/media/chundi/3b6b0f74-0ac7-42c7-b76b-00c65f5b3673/revisitop/cnnimageretrieval-pytorch/data/test/matlab_data/roxford5k_GEM_index.npy"
@@ -63,9 +63,18 @@ def gae_for(args, position):
     #D = np.load("/media/jason/cc0aeb62-0bc7-4f3e-99a0-3bba3dd9f8fc/landmarks/revisitop1m/revisitDistractors_fused_3s_cq.npy").T.astype(np.float32)
     #X = np.concatenate((X.T,D.T)).T
     # load the distractor too, shape should be (2048, 1M)
-    adj, features = gen_graph_index(Q, X, k=5, k_qe=3, do_qe=False) #-----> 5k
 
-    adj_Q, features_Q = gen_graph(Q, X, k=15, k_qe=3, do_qe=False) #generate validation/revop evaluation the same way as training ----> 5k
+    adj_Q_pos = np.load('adj_q_pos_ransac_gem_complete.npy')
+    adj_pos = np.load('adj_pos_ransac_gem_complete.npy')
+
+    adj, features = gen_graph_index(adj_pos, Q, X, k=5, k_qe=3, do_qe=False)  # -----> 5k
+
+    adj_Q, features_Q = gen_graph(adj_Q_pos, Q, X, k=10, k_qe=3,
+                                  do_qe=False)
+
+    #adj, features = gen_graph_index(Q, X, k=5, k_qe=3, do_qe=False) #-----> 5k
+
+    #adj_Q, features_Q = gen_graph(Q, X, k=5, k_qe=3, do_qe=False) #generate validation/revop evaluation the same way as training ----> 5k
     features_all = np.concatenate([features_Q, features])
 
     #adj_Q = adj_Q.todense()
@@ -180,9 +189,9 @@ def gae_for(args, position):
     # validation done\\\
 
     features_pre = (adj_norm * features)
-    #eatures_pre = features_pre / np.linalg.norm(features_pre, ord=2, axis=1).reshape((features_pre.shape[0], 1))
+    features_pre = features_pre / np.linalg.norm(features_pre, ord=2, axis=1).reshape((features_pre.shape[0], 1))
     features_all_pre = (adj_all_norm * features_all)
-    #features_all_pre = features_all_pre / np.linalg.norm(features_all_pre, ord=2, axis=1).reshape((features_all_pre.shape[0], 1))
+    features_all_pre = features_all_pre / np.linalg.norm(features_all_pre, ord=2, axis=1).reshape((features_all_pre.shape[0], 1))
     revop_map = get_roc_score_matrix(features_all_pre, Q.shape[1])
     print('inference: {}'.format(revop_map))
     #ipdb.set_trace()
@@ -246,7 +255,7 @@ def gae_for(args, position):
 
     #losses = tf.keras.backend.binary_crossentropy(adj_preds, adj_preds, False)
 
-    losses = -1 * adj_preds ** 2 + 0.48 * adj_preds
+    losses = -1 * adj_preds ** 2 + 0.50 * adj_preds
 
     global_step = tf.Variable(0, trainable=False)
     loss = tf.reduce_mean(losses)

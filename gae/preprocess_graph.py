@@ -88,59 +88,60 @@ def replace_adj_weight(sim_top, database="oxford"):
 
         
 
-
-def gen_graph(Q, X, k = 5, k_qe=5, do_qe=False):
+def gen_graph(adj_Q_pos, Q, X, k=5, k_qe=5, do_qe=False):
     threshold = 0.7
     t = time.time()
 
-    f = np.concatenate((Q.T,X.T))
+    f = np.concatenate((Q.T, X.T))
 
-    #sim = np.matmul(f,f.T)
-    sim = np.matmul(Q.T,X)
-    #sim = np.power(sim,3)
-    sim_top = np.argpartition(sim,-k,1)[:,-k:]
+    # sim = np.matmul(f,f.T)
+    sim = np.matmul(Q.T, X)
+    # sim = np.power(sim,3)
+    # sim_top = np.argpartition(sim,-k,1)[:,-k:]
+    sim_top = adj_Q_pos[:, 0:k]
 
     if do_qe:
         # Query Expansion Vector
-        def qe_vec(preds,Q,X, k = 2):
-            Qexp = np.array([(np.sum(X[:,top[:k]],axis=1)+query)/(k+1) for query,top in zip(Q.T,preds.T)]).T
+        def qe_vec(preds, Q, X, k=2):
+            Qexp = np.array([(np.sum(X[:, top[:k]], axis=1) + query) / (k + 1) for query, top in zip(Q.T, preds.T)]).T
             B = Qexp[:, 70:]
-            #print("========Graph's score after DBA-QE=======")
-            #eval_revop(np.argsort(-np.matmul(B.T,Qexp),axis=0))
-            return np.matmul(X.T,Qexp), Qexp.T
+            # print("========Graph's score after DBA-QE=======")
+            # eval_revop(np.argsort(-np.matmul(B.T,Qexp),axis=0))
+            return np.matmul(X.T, Qexp), Qexp.T
 
-        sim_qe, f = qe_vec(sim_top.T,f.T,f.T,k_qe)
-        sim_top = np.argpartition(sim_qe,-k,1)[:,-k:]
-        #sim = sim_qe
+        sim_qe, f = qe_vec(sim_top.T, f.T, f.T, k_qe)
+        sim_top = np.argpartition(sim_qe, -k, 1)[:, -k:]
+        # sim = sim_qe
     adj = np.zeros(sim.shape)
 
     for i in range(adj.shape[0]):
-        adj[i,sim_top[i]] = sim[i,sim_top[i]]
-        adj[i,i] = 0
-#        adj[sim_top[i], i] = sim[sim_top[i], i]
-#        for j in range(k):
-#            if adj[i,j] < threshold:
-#                adj[i,j] = 0
-#         adj[i,i]=1.0
+        adj[i, sim_top[i]] = sim[i, sim_top[i]]
+        adj[i, i] = 0
+    # adj[sim_top[i], i] = sim[sim_top[i], i]
+    #        for j in range(k):
+    #            if adj[i,j] < threshold:
+    #                adj[i,j] = 0
+    #         adj[i,i]=1.0
 
-#    adj = adj * adj.T
+    #    adj = adj * adj.T
 
     # networkx format
     # adj = np.where(adj>0, 1, 0)
     # print adj
     adj = sp.csr_matrix(adj)
-    #G = nx.from_numpy_matrix(adj)
-    #adj = nx.adjacency_matrix(G)
+    # G = nx.from_numpy_matrix(adj)
+    # adj = nx.adjacency_matrix(G)
     # make symmetric for only query
-    #for i in range(rows.shape[0]):
+    # for i in range(rows.shape[0]):
     #    if rows[i] < Q.shape[0]:
     #    adj[columns[i], rows[i]] = adj[rows[i], columns[i]] if adj[columns[i], rows[i]] == 0 else adj[columns[i], rows[i]]
 
 
-    print('created G, adj with [k={}][qe={}][do_qe={}][{:.2f}s]'.format(k,k_qe,do_qe,time.time()-t))
+    print('created G, adj with [k={}][qe={}][do_qe={}][{:.2f}s]'.format(k, k_qe, do_qe, time.time() - t))
     return adj, Q.T
 
-def gen_graph_index(Q, X, k = 5, k_qe=5, do_qe=False):
+
+def gen_graph_index(adj_pos, Q, X, k=5, k_qe=5, do_qe=False):
     threshold = 0.7
     t = time.time()
 
@@ -151,63 +152,195 @@ def gen_graph_index(Q, X, k = 5, k_qe=5, do_qe=False):
         adj = sp.csr_matrix((f.shape[0], f.shape[0]))
         start = time.time()
         for i in range(0, f.shape[0], chunk_size):
-            sim = np.matmul(f[i:i+chunk_size, :], f.T)
-            sim_top = np.argpartition(sim,-k,1)[:,-k:]
+            sim = np.matmul(f[i:i + chunk_size, :], f.T)
+            sim_top = np.argpartition(sim, -k, 1)[:, -k:]
             for j in range(sim_top.shape[0]):
-                adj[i+j, sim_top[j]] = sim[j, sim_top[j]]
-                adj[sim_top[j], i+j] = np.expand_dims(sim[j, sim_top[j]], axis=-1) #sim[sim_top[j], j]
-                adj[i+j, i+j] = 0
-            sys.stdout.write("\r" + "calculating kNN graph: [" + str(i) + "/" + str(f.shape[0]) + "] and took: " + str(time.time() - start))
+                adj[i + j, sim_top[j]] = sim[j, sim_top[j]]
+                adj[sim_top[j], i + j] = np.expand_dims(sim[j, sim_top[j]], axis=-1)  # sim[sim_top[j], j]
+                adj[i + j, i + j] = 0
+            sys.stdout.write("\r" + "calculating kNN graph: [" + str(i) + "/" + str(f.shape[0]) + "] and took: " + str(
+                time.time() - start))
             sys.stdout.flush()
         return adj
 
-    #f = np.concatenate((Q.T,X.T))
+    # f = np.concatenate((Q.T,X.T))
 
-    sim = np.matmul(f,f.T)
-    sim_top = np.argpartition(sim,-k,1)[:,-k:]
+    sim = np.matmul(f, f.T)
+    # sim_top = np.argpartition(sim,-k,1)[:,-k:]
+    sim_top = adj_pos[:, 0:k]
 
     if do_qe:
         # Query Expansion Vector
-        def qe_vec(preds,Q,X, k = 2):
-            Qexp = np.array([(np.sum(X[:,top[:k]],axis=1)+query)/(k+1) for query,top in zip(Q.T,preds.T)]).T
+        def qe_vec(preds, Q, X, k=2):
+            Qexp = np.array([(np.sum(X[:, top[:k]], axis=1) + query) / (k + 1) for query, top in zip(Q.T, preds.T)]).T
             B = Qexp[:, 70:]
             print("========Graph's score after DBA-QE=======")
-            eval_revop(np.argsort(-np.matmul(B.T,Qexp),axis=0))
-            return np.matmul(X.T,Qexp), Qexp.T
+            eval_revop(np.argsort(-np.matmul(B.T, Qexp), axis=0))
+            return np.matmul(X.T, Qexp), Qexp.T
 
-        sim_qe, f = qe_vec(sim_top.T,f.T,f.T,k_qe)
-        sim_top = np.argpartition(sim_qe,-k,1)[:,-k:]
-        #sim = sim_qe
+        sim_qe, f = qe_vec(sim_top.T, f.T, f.T, k_qe)
+        sim_top = np.argpartition(sim_qe, -k, 1)[:, -k:]
+        # sim = sim_qe
 
     adj = np.zeros(sim.shape)
-    #sim_top = add_neighbours_neighbour(sim_top)
-
+    # sim_top = add_neighbours_neighbour(sim_top)
     for i in range(adj.shape[0]):
-        adj[i,sim_top[i]] = sim[i,sim_top[i]]
-        adj[sim_top[i], i] = sim[i,sim_top[i]]#sim[sim_top[i], i]
-        adj[i,i] = 0
-#        for j in range(k):
-#            if adj[i,j] < threshold:
-#                adj[i,j] = 0
-#         adj[i,i]=1.0
+        adj[i, sim_top[i]] = sim[i, sim_top[i]]
+        adj[sim_top[i], i] = sim[i, sim_top[i]]  # sim[sim_top[i], i]
+        adj[i, i] = 0
 
-#    adj = adj * adj.T
+        # for i in range(adj.shape[0]):
+        #     for j in sim_top[i]:
+        #         if i not in sim_top[j]:
+        #             continue
+        #         adj[i, j] = sim[i,j]
+        #     adj[i,i] = 0
+        # adj[i,sim_top[i]] = sim[i,sim_top[i]]
+        # adj[sim_top[i], i] = sim[i,sim_top[i]]#sim[sim_top[i], i]
+        # adj[i,i] = 0
+    #        for j in range(k):
+    #            if adj[i,j] < threshold:
+    #                adj[i,j] = 0
+    #         adj[i,i]=1.0
+
+    #    adj = adj * adj.T
 
     # networkx format
     # adj = np.where(adj>0, 1, 0)
     # print adj
-    #adj = replace_adj_weight(sim_top)
-    #print(adj)
+    # adj = replace_adj_weight(sim_top)
+    # print(adj)
     G = nx.from_numpy_matrix(adj)
     adj = nx.adjacency_matrix(G)
     rows, columns = adj.nonzero()
     # make symmetric
-    #for i in range(rows.shape[0]):
+    # for i in range(rows.shape[0]):
     #    adj[columns[i], rows[i]] = adj[rows[i], columns[i]] if adj[columns[i], rows[i]] == 0 else adj[columns[i], rows[i]]
 
 
-    print('created G, adj with [k={}][qe={}][do_qe={}][{:.2f}s]'.format(k,k_qe,do_qe,time.time()-t))
-    return adj,f
+    print('created G, adj with [k={}][qe={}][do_qe={}][{:.2f}s]'.format(k, k_qe, do_qe, time.time() - t))
+    return adj, f
+
+
+# def gen_graph(Q, X, k = 5, k_qe=5, do_qe=False):
+#     threshold = 0.7
+#     t = time.time()
+#
+#     f = np.concatenate((Q.T,X.T))
+#
+#     #sim = np.matmul(f,f.T)
+#     sim = np.matmul(Q.T,X)
+#     #sim = np.power(sim,3)
+#     sim_top = np.argpartition(sim,-k,1)[:,-k:]
+#
+#     if do_qe:
+#         # Query Expansion Vector
+#         def qe_vec(preds,Q,X, k = 2):
+#             Qexp = np.array([(np.sum(X[:,top[:k]],axis=1)+query)/(k+1) for query,top in zip(Q.T,preds.T)]).T
+#             B = Qexp[:, 70:]
+#             #print("========Graph's score after DBA-QE=======")
+#             #eval_revop(np.argsort(-np.matmul(B.T,Qexp),axis=0))
+#             return np.matmul(X.T,Qexp), Qexp.T
+#
+#         sim_qe, f = qe_vec(sim_top.T,f.T,f.T,k_qe)
+#         sim_top = np.argpartition(sim_qe,-k,1)[:,-k:]
+#         #sim = sim_qe
+#     adj = np.zeros(sim.shape)
+#
+#     for i in range(adj.shape[0]):
+#         adj[i,sim_top[i]] = sim[i,sim_top[i]]
+#         adj[i,i] = 0
+# #        adj[sim_top[i], i] = sim[sim_top[i], i]
+# #        for j in range(k):
+# #            if adj[i,j] < threshold:
+# #                adj[i,j] = 0
+# #         adj[i,i]=1.0
+#
+# #    adj = adj * adj.T
+#
+#     # networkx format
+#     # adj = np.where(adj>0, 1, 0)
+#     # print adj
+#     adj = sp.csr_matrix(adj)
+#     #G = nx.from_numpy_matrix(adj)
+#     #adj = nx.adjacency_matrix(G)
+#     # make symmetric for only query
+#     #for i in range(rows.shape[0]):
+#     #    if rows[i] < Q.shape[0]:
+#     #    adj[columns[i], rows[i]] = adj[rows[i], columns[i]] if adj[columns[i], rows[i]] == 0 else adj[columns[i], rows[i]]
+#
+#
+#     print('created G, adj with [k={}][qe={}][do_qe={}][{:.2f}s]'.format(k,k_qe,do_qe,time.time()-t))
+#     return adj, Q.T
+#
+# def gen_graph_index(Q, X, k = 5, k_qe=5, do_qe=False):
+#     threshold = 0.7
+#     t = time.time()
+#
+#     f = X.T
+#     if f.shape[0] > 10000:
+#         # break into chunks
+#         chunk_size = 20000
+#         adj = sp.csr_matrix((f.shape[0], f.shape[0]))
+#         start = time.time()
+#         for i in range(0, f.shape[0], chunk_size):
+#             sim = np.matmul(f[i:i+chunk_size, :], f.T)
+#             sim_top = np.argpartition(sim,-k,1)[:,-k:]
+#             for j in range(sim_top.shape[0]):
+#                 adj[i+j, sim_top[j]] = sim[j, sim_top[j]]
+#                 adj[sim_top[j], i+j] = np.expand_dims(sim[j, sim_top[j]], axis=-1) #sim[sim_top[j], j]
+#                 adj[i+j, i+j] = 0
+#             sys.stdout.write("\r" + "calculating kNN graph: [" + str(i) + "/" + str(f.shape[0]) + "] and took: " + str(time.time() - start))
+#             sys.stdout.flush()
+#         return adj
+#
+#     #f = np.concatenate((Q.T,X.T))
+#
+#     sim = np.matmul(f,f.T)
+#     sim_top = np.argpartition(sim,-k,1)[:,-k:]
+#
+#     if do_qe:
+#         # Query Expansion Vector
+#         def qe_vec(preds,Q,X, k = 2):
+#             Qexp = np.array([(np.sum(X[:,top[:k]],axis=1)+query)/(k+1) for query,top in zip(Q.T,preds.T)]).T
+#             B = Qexp[:, 70:]
+#             print("========Graph's score after DBA-QE=======")
+#             eval_revop(np.argsort(-np.matmul(B.T,Qexp),axis=0))
+#             return np.matmul(X.T,Qexp), Qexp.T
+#
+#         sim_qe, f = qe_vec(sim_top.T,f.T,f.T,k_qe)
+#         sim_top = np.argpartition(sim_qe,-k,1)[:,-k:]
+#         #sim = sim_qe
+#
+#     adj = np.zeros(sim.shape)
+#     #sim_top = add_neighbours_neighbour(sim_top)
+#
+#     for i in range(adj.shape[0]):
+#         adj[i,sim_top[i]] = sim[i,sim_top[i]]
+#         adj[sim_top[i], i] = sim[i,sim_top[i]]#sim[sim_top[i], i]
+#         adj[i,i] = 0
+# #        for j in range(k):
+# #            if adj[i,j] < threshold:
+# #                adj[i,j] = 0
+# #         adj[i,i]=1.0
+#
+# #    adj = adj * adj.T
+#
+#     # networkx format
+#     # adj = np.where(adj>0, 1, 0)
+#     # print adj
+#     #adj = replace_adj_weight(sim_top)
+#     #print(adj)
+#     G = nx.from_numpy_matrix(adj)
+#     adj = nx.adjacency_matrix(G)
+#     rows, columns = adj.nonzero()
+#     # make symmetric
+#     #for i in range(rows.shape[0]):
+#     #    adj[columns[i], rows[i]] = adj[rows[i], columns[i]] if adj[columns[i], rows[i]] == 0 else adj[columns[i], rows[i]]
+#
+#
+#     print('created G, adj with [k={}][qe={}][do_qe={}][{:.2f}s]'.format(k,k_qe,do_qe,time.time()-t))
+#     return adj,f
 
 def load_data():
     cfg,data = init_revop('roxford5k', DATA_PATH)
