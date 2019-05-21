@@ -116,7 +116,7 @@ def gen_graph(adj_Q_pos, Q, X, k=5, k_qe=5, do_qe=False):
 
     for i in range(adj.shape[0]):
         adj[i, sim_top[i]] = sim[i, sim_top[i]]
-        adj[i, i] = 0
+        #adj[i, i] = 0
     # adj[sim_top[i], i] = sim[sim_top[i], i]
     #        for j in range(k):
     #            if adj[i,j] < threshold:

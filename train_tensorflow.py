@@ -20,6 +20,7 @@ import tensorflow as tf
 import os
 
 os.environ["CUDA_VISIBLE_DEVICES"]="2"
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--model', type=str, default='gcn_vae', help="models used")
@@ -27,7 +28,7 @@ parser.add_argument('--seed', type=int, default=42, help='Random seed.')
 parser.add_argument('--epochs', type=int, default=99999, help='Number of epochs to train.')
 parser.add_argument('--hidden1', type=int, default=2048, help='Number of units in hidden layer 1.')
 parser.add_argument('--hidden2', type=int, default=512, help='Number of units in hidden layer 2.')
-parser.add_argument('--lr', type=float, default=0.01, help='Initial learning rate.')
+parser.add_argument('--lr', type=float, default=0.003, help='Initial learning rate.')
 parser.add_argument('--dropout', type=float, default=0.1, help='Dropout rate (1 - keep probability).')
 parser.add_argument('--dataset-str', type=str, default='cora', help='type of dataset.')
 parser.add_argument('--batch-size', type=int, default=4096, help='Batch size.')
@@ -64,10 +65,10 @@ def gae_for(args, position):
     #X = np.concatenate((X.T,D.T)).T
     # load the distractor too, shape should be (2048, 1M)
 
-    adj_Q_pos = np.load('adj_q_pos_ransac_gem_complete.npy')
-    adj_pos = np.load('adj_pos_ransac_gem_complete.npy')
+    adj_Q_pos = np.load('/media/chundi/3b6b0f74-0ac7-42c7-b76b-00c65f5b3673/revisitop/cnnimageretrieval-pytorch/data/test/delf/roxford_query_ransac_delf_250.npy')
+    adj_pos = np.load('/media/chundi/3b6b0f74-0ac7-42c7-b76b-00c65f5b3673/revisitop/cnnimageretrieval-pytorch/data/test/delf/roxford_index_ransac_delf_250.npy')
 
-    adj, features = gen_graph_index(adj_pos, Q, X, k=5, k_qe=3, do_qe=False)  # -----> 5k
+    adj, features = gen_graph_index(adj_pos, Q, X, k=10, k_qe=3, do_qe=False)  # -----> 5k
 
     adj_Q, features_Q = gen_graph(adj_Q_pos, Q, X, k=10, k_qe=3,
                                   do_qe=False)
@@ -101,7 +102,8 @@ def gae_for(args, position):
 
     #adj_train, train_edges, val_edges, val_edges_false, test_edges, test_edges_false = mask_test_edges(adj)
     print("Sampling validation")
-    adj_train, adj_val, features, features_valid = mask_test_rows(adj, features)
+    #adj_train, adj_val, features, features_valid = mask_test_rows(adj, features)
+    adj_train = adj
     adj = adj_train
 
     # Some preprocessing
@@ -121,65 +123,6 @@ def gae_for(args, position):
     print("pos wieght: " + str(pos_weight))
     norm = adj.shape[0] * adj.shape[0] / float((adj.shape[0] * adj.shape[0] - adj.sum()) * 2)
 
-    # for validation data processing:
-    zero = sp.csr_matrix((adj_train.shape[0], adj_val.shape[0]))
-    adj_train_ext = sp.hstack((zero, adj_train))
-    adj_evaluate = sp.vstack((adj_val, adj_train_ext))
-    adj_evaluate = sp.csr_matrix(adj_evaluate)
-    rows, columns = adj_evaluate.nonzero()
-    val_edges = []
-    val_edges_false = []
-    pos = {}
-    print("getting positive edges")
-    all_val = [i for i in range(len(rows)) if rows[i] < adj_val.shape[0]]
-    for i in all_val:
-        sys.stdout.write("\r sampling edges for validtion: [" + str(i) + "]")
-        val_edges.append((rows[i], columns[i]))
-        if rows[i] not in pos:
-            pos[rows[i]] = []
-        pos[rows[i]].append(columns[i])
-    #for i in range(rows.shape[0]):
-    #    sys.stdout.write("\r sampling edges for validtion: [" + str(i) + "/" + str(adj_val.shape[0]) + "]")
-    #    sys.stdout.flush()
-    #    if rows[i] < adj_val.shape[0]:
-    #        val_edges.append((rows[i], columns[i]))
-    #        if rows[i] not in pos:
-    #            pos[rows[i]] = []
-    #        pos[rows[i]].append(columns[i])
-    #        adj_evaluate[columns[i], rows[i]] = adj_evaluate[rows[i], columns[i]]
-    #    else:
-    #        break
-    step = 0
-    neg_per_pos = 100
-    #for r in pos:
-    #    p = pos[r]
-    #neg_edges = Parallel(n_jobs=40)(delayed(neg_sample)(pos[i], adj_val.shape[1], neg_per_pos, i) for i in pos)
-    #val_edges_false = [(i, item) for i in range(len(neg_edges)) for item in neg_edges[i]]
-        #a = np.random.permutation(adj_val.shape[1])
-        #a = [i for i in a if i not in p]
-        #a = a[:100]
-        #for i in a:
-        #    val_edges_false.append((r, i))
-        ##count = 0
-        ##i = 0
-        #sys.stdout.write("\r sampling neg edges for validtion: [" + str(step) + "/" + str(len(pos)) + "]")
-        #sys.stdout.flush()
-        #step += 1
-        #while count < 100:
-        #    if a[i] not in p:
-        #        val_edges_false.append((r, a[i]))
-        #        count += 1
-        #    i += 1
-
-    print("preprocessing adj_evaluate")
-    adj_evaluate_norm = preprocess_graph(adj_evaluate)
-    #adj_evaluate_norm_label = preprocess_graph_sp(adj_evaluate)
-
-    adj_label_evaluate = adj_evaluate + sp.eye(adj_evaluate.shape[0]) #adj_evaluate_norm_label+ sp.eye(adj_evaluate.shape[0]) #adj_evaluate + sp.eye(adj_evaluate.shape[0])
-    #adj_label_evaluate = torch.FloatTensor(adj_label_evaluate.toarray()) #sparse_mx_to_torch_sparse_tensor(adj_label_evaluate)
-    features_evaluate = np.concatenate([features, features_valid])
-    #features_evaluate = torch.from_numpy(features_evaluate)
-    # validation done\\\
 
     features_pre = (adj_norm * features)
     #features_pre = features_pre / np.linalg.norm(features_pre, ord=2, axis=1).reshape((features_pre.shape[0], 1))
@@ -189,128 +132,159 @@ def gae_for(args, position):
     print('inference: {}'.format(revop_map))
     #ipdb.set_trace()
 
-    #with tf.device('/device:GPU:1'):
-    #adj_label_spt = convert_sparse_matrix_to_sparse_tensor(adj_label)
-    featts_ph = tf.placeholder(dtype=tf.float32, shape=[None, 2048])
+    def run_tf(EARLY_STOPPING_ITR=30, alpha=2, beta=0.25):
+        tf.reset_default_graph()
+        # with tf.device('/device:GPU:1'):
+        # adj_label_spt = convert_sparse_matrix_to_sparse_tensor(adj_label)
+        featts_ph = tf.placeholder(dtype=tf.float32, shape=[None, 2048])
 
+        # ipdb.set_trace()
+        regularizer = tf.contrib.layers.l2_regularizer(scale=1e-5)
 
+        # print(features_pre.shape[0])
+        training_dataset = tf.data.Dataset.from_tensor_slices(featts_ph)
+        training_dataset = training_dataset.shuffle(buffer_size=10000)
+        training_dataset = training_dataset.batch(args.batch_size, drop_remainder=True)
+        training_dataset = training_dataset.repeat()
 
-    #ipdb.set_trace()
-    regularizer = tf.contrib.layers.l2_regularizer(scale=1e-5)
+        validation_dataset = tf.data.Dataset.from_tensor_slices(featts_ph)
+        validation_dataset = validation_dataset.batch(2600)
 
-    print(features_pre.shape[0])
-    training_dataset = tf.data.Dataset.from_tensor_slices(featts_ph)
-    training_dataset = training_dataset.shuffle(buffer_size=10000)
-    training_dataset = training_dataset.batch(args.batch_size, drop_remainder=True)
-    training_dataset = training_dataset.repeat()
+        iterator = tf.data.Iterator.from_structure(training_dataset.output_types,
+                                                   training_dataset.output_shapes)
+        itr_train_init_op = iterator.make_initializer(training_dataset)
+        # ipdb.set_trace()
+        itr_valid_init_op = iterator.make_initializer(validation_dataset)
+        next_element = iterator.get_next()
 
-    validation_dataset = tf.data.Dataset.from_tensor_slices(featts_ph)
-    validation_dataset = validation_dataset.batch(2600)
+        # ipdb.set_trace()
 
-    iterator = tf.data.Iterator.from_structure(training_dataset.output_types,
-                                               training_dataset.output_shapes)
-    itr_train_init_op = iterator.make_initializer(training_dataset)
-    #ipdb.set_trace()
-    itr_valid_init_op = iterator.make_initializer(validation_dataset)
-    next_element = iterator.get_next()
+        # # 1st GCN
+        # with tf.variable_scope('GCN1'):
+        #     # 3np.random.seed(428)
+        #     init_w = (np.random.randn(args.hidden1, args.hidden1) * 1e-5)
+        #     # init_w = np.zeros((args.hidden1,args.hidden1))
+        #     init_w[np.where(np.eye(args.hidden1) != 0)] = 1
+        #     # ipdb.set_trace()
+        #     # print(init_w)
+        #     constant_init = tf.convert_to_tensor(init_w, dtype=tf.float32)
+        #     W1 = tf.get_variable(name="w", dtype=tf.float32,
+        #                          initializer=constant_init,
+        #                          regularizer=regularizer)
+        #     B1 = tf.get_variable(name='b', shape=[args.hidden1], dtype=tf.float32,
+        #                          initializer=tf.constant_initializer(0.0))
+        #     output1 = tf.nn.bias_add(tf.matmul(next_element, W1), B1)
+        #     output1 = tf.nn.elu(output1)
 
-    #ipdb.set_trace()
-
-    # 1st GCN
-    with tf.variable_scope('GCN1'):
-        W1 = tf.get_variable(name="w", shape=[feat_dim,args.hidden1], dtype=tf.float32,
-                             initializer=tf.random_normal_initializer(),
-                             regularizer=regularizer)
-        B1 = tf.get_variable(name='b', shape=[args.hidden1], dtype=tf.float32,
+        # 1st GCN
+        with tf.variable_scope('GCN1'):
+            W1 = tf.get_variable(name="w", shape=[feat_dim, args.hidden1], dtype=tf.float32,
+                                 initializer=tf.random_normal_initializer(),
+                                 regularizer=regularizer)
+            B1 = tf.get_variable(name='b', shape=[args.hidden1], dtype=tf.float32,
                                  initializer=tf.constant_initializer(0.0))
-        output1 = tf.nn.bias_add(tf.matmul(next_element, W1), B1)
-        output1 = tf.nn.elu(output1)
+            output1 = tf.nn.bias_add(tf.matmul(next_element, W1), B1)
+            output1 = tf.nn.elu(output1)
 
-    with tf.variable_scope('InnerProduct'):
-        hidden_emb = tf.nn.l2_normalize(output1, axis=1)
-        #hidden_emb = output1
-        adj_preds = tf.matmul(hidden_emb, tf.transpose(hidden_emb))
-        adj_preds = tf.nn.relu(adj_preds)
-        #adj_preds = tf.nn.dropout(adj_preds, 0.99)
+        with tf.variable_scope('InnerProduct'):
+            hidden_emb = tf.nn.l2_normalize(output1, axis=1)
+            # hidden_emb = output1
+            adj_preds = tf.matmul(hidden_emb, tf.transpose(hidden_emb))
+            adj_preds = tf.nn.relu(adj_preds)
+            # adj_preds = tf.nn.dropout(adj_preds, 0.99)
 
-    #ipdb.set_trace()
-    print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
-    print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
-    print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
-    print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
-    # losses = tf.nn.weighted_cross_entropy_with_logits(
-    #     #tf.zeros_like(adj_preds, dtype=tf.float32),
-    #     adj_preds,
-    #     adj_preds,
-    #     pos_weight=1.0,
-    #     name='weighted_loss'
-    # )
+        # losses = tf.nn.weighted_cross_entropy_with_logits(
+        #     #tf.zeros_like(adj_preds, dtype=tf.float32),
+        #     adj_preds,
+        #     adj_preds,
+        #     pos_weight=1.0,
+        #     name='weighted_loss'
+        # )
 
-    #losses = tf.keras.backend.binary_crossentropy(adj_preds, adj_preds, False)
+        # losses = tf.keras.backend.binary_crossentropy(adj_preds, adj_preds, False)
 
-    losses = -1 * adj_preds ** 2 + 0.5 * adj_preds + 0.5
+        # losses = -1 * adj_preds ** 2 + 0.5 * adj_preds + 0.5
 
-    global_step = tf.Variable(0, trainable=False)
-    loss = tf.reduce_mean(losses)
-    reg_variables = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
-    reg_term = tf.contrib.layers.apply_regularization(regularizer, reg_variables)
-    loss += reg_term
-    learning_rate_t = tf.train.exponential_decay(args.lr, global_step, 9999999999, 0.3)
-    optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate_t, beta1=0.0, beta2=0.99999, epsilon=1e-12)
-    #optimizer = tf.train.MomentumOptimizer(learning_rate=learning_rate_t, momentum=0.0)
-    grads_and_vars = optimizer.compute_gradients(loss)
-    train_op = optimizer.apply_gradients(grads_and_vars)
-    train_init_op = tf.global_variables_initializer()
+        losses = -0.5 * alpha * (adj_preds - beta) ** 2
 
-    best_revop = 0.0
+        global_step = tf.Variable(0, trainable=False)
+        loss = tf.reduce_mean(losses)
+        reg_variables = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
+        reg_term = tf.contrib.layers.apply_regularization(regularizer, reg_variables)
+        loss += reg_term
+        learning_rate_t = tf.train.exponential_decay(args.lr, global_step, 9999999999, 0.3)
+        optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate_t, beta1=0.0, beta2=0.99999, epsilon=1e-12)
+        # optimizer = tf.train.MomentumOptimizer(learning_rate=learning_rate_t, momentum=0.0)
+        grads_and_vars = optimizer.compute_gradients(loss)
+        train_op = optimizer.apply_gradients(grads_and_vars)
+        train_init_op = tf.global_variables_initializer()
 
-    session_conf = tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)
-    with tf.Session(config=session_conf) as sess:
-        #sess.run(itr_train_init_op, feed_dict={featts_ph: features})
-        #sess.run(iterator2.initializer)
+        best_revop = 0.0
+        stopping_tracker = 0
+        session_conf = tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)
+        with tf.Session(config=session_conf) as sess:
+            # sess.run(itr_train_init_op, feed_dict={featts_ph: features})
+            # sess.run(iterator2.initializer)
 
-        sess.run(train_init_op)
-        #ipdb.set_trace()
-        #hidden_emb_inf = sess.run(step2_norm)
-        #revop_map = get_roc_score_matrix(hidden_emb_inf, Q.shape[1])
-        #print("inference map:{}".format(revop_map))
-        #sess.run(train_init_op)
+            sess.run(train_init_op)
+            # ipdb.set_trace()
+            # hidden_emb_inf = sess.run(step2_norm)
+            # revop_map = get_roc_score_matrix(hidden_emb_inf, Q.shape[1])
+            # print("inference map:{}".format(revop_map))
+            # sess.run(train_init_op)
 
-        itr = 0
-        sess.run(itr_train_init_op, feed_dict={featts_ph: features_pre})
-        while itr < args.epochs:
-            start_time = time.time()
-            sess.run(global_step.assign(itr + 1))
-            #sess.run(tf.initialize_variables([labels]))
-            _, loss_out = sess.run([train_op, loss])
-            end_time = time.time() - start_time
-            print(
-                "itr: {}, train loss: {}, train time: {}".format(itr, loss_out, str(end_time)))
-            itr += 1
-            if loss_out <= 0:
-                ipdb.set_trace()
-
-
-            if itr % 1 == 0:
+            itr = 0
+            sess.run(itr_train_init_op, feed_dict={featts_ph: features_pre})
+            while itr < args.epochs:
                 start_time = time.time()
-                sess.run(itr_valid_init_op, feed_dict={featts_ph: features_all_pre})
-                first_time_flag = True
-                hidden_emb_np = None
-                while True:
-                    try:
-                        if first_time_flag:
-                            hidden_emb_np = sess.run(hidden_emb)
-                            first_time_flag = False
-                        else:
-                            hidden_emb_np = np.concatenate([hidden_emb_np, sess.run(hidden_emb)], axis=0)
-                    except tf.errors.OutOfRangeError:
-                        break
+                # sess.run(global_step.assign(itr + 1))
+                # sess.run(tf.initialize_variables([labels]))
+                _, loss_out = sess.run([train_op, loss])
                 end_time = time.time() - start_time
-                revop_map = get_roc_score_matrix(hidden_emb_np, Q.shape[1])
-                if revop_map > best_revop:
-                    best_revop = revop_map
-                print("train loss: {}, inf time: {}, revop:{}, best revop:{}".format(loss_out, str(end_time),revop_map, best_revop))
-                sess.run(itr_train_init_op, feed_dict={featts_ph: features_pre})
+                # print(
+                #     "itr: {}, train loss: {}, train time: {}".format(itr, loss_out, str(end_time)))
+                itr += 1
+
+                if itr % 1 == 0:
+                    start_time = time.time()
+                    sess.run(itr_valid_init_op, feed_dict={featts_ph: features_all_pre})
+                    first_time_flag = True
+                    hidden_emb_np = None
+                    while True:
+                        try:
+                            if first_time_flag:
+                                hidden_emb_np = sess.run(hidden_emb)
+                                first_time_flag = False
+                            else:
+                                hidden_emb_np = np.concatenate([hidden_emb_np, sess.run(hidden_emb)], axis=0)
+                        except tf.errors.OutOfRangeError:
+                            break
+                    end_time = time.time() - start_time
+                    revop_map = get_roc_score_matrix(hidden_emb_np, Q.shape[1])
+                    if revop_map > best_revop:
+                        best_revop = revop_map
+                        stopping_tracker = 0
+                    else:
+                        stopping_tracker += 1
+                        if stopping_tracker >= EARLY_STOPPING_ITR:
+                            break
+                    # print("train loss: {}, inf time: {}, revop:{}, best revop:{}".format(loss_out, str(end_time),revop_map, best_revop))
+                    sess.run(itr_train_init_op, feed_dict={featts_ph: features_pre})
+            return best_revop
+
+    best_map = 0
+    best_alpha = 0
+    best_beta = 0
+    for a in [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100]:
+        for b in np.arange(0, 1, 0.05):
+            ap = run_tf()
+            # ipdb.set_trace()
+            print("{:.4f} {:.4f} {:.4f}".format(a, b, ap))
+            if ap > best_map:
+                best_map = ap
+                best_alpha = a
+                best_beta = b
+    print("\n\nbest: {:.4f} {:.4f} {:.4f}".format(best_alpha, best_beta, best_map))
     
 
 
